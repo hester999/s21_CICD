@@ -1,0 +1,176 @@
+#include "grep_print.h"
+
+#include <string.h>
+
+void add_line_break(char *line) {
+  if (strstr(line, "\n") == 0) {
+    putchar('\n');
+  }
+}
+
+void print_name_file(int argc, char *argv, flags all_flag) {
+  if (!all_flag.h)
+    if ((argc - optind > 2)) printf("%s:", argv);
+}
+
+void grep(FILE *new_f, char *sample, flags all_flag, int argc, char *argv) {
+  char *line = NULL;
+  size_t len = 0;
+
+  regex_t preg;  // структурав, включает re_nsub: определяет количество
+                 // подвыражений в регулярном выражении
+
+  regmatch_t match;  // массив структур местоположения подвыражений в регулярном
+                     // выражении.
+
+  int err;
+
+  err = regcomp(&preg, sample, REG_EXTENDED | (all_flag.i ? REG_ICASE : 0) | REG_NEWLINE);
+
+  if (err != 0)
+    fprintf(stderr, "Error: ошибка компиляции регулярного выражения");
+  else {
+    // if(all_flag.h && all_flag.n)
+    //   all_flag.n = 0;
+    if (all_flag.v && all_flag.o) all_flag.o = 0;
+
+    int count_matching_lines = 0;
+    int invert_lines = 0;
+    int number = 0;
+    int matched_file = 0;         // -cl
+    int matched_file_invert = 0;  //-clv
+
+    while ((getline(&line, &len, new_f)) != -1) {
+      int printed = 0;  // -o - print only 1 filename for (1 line && match >= 2)
+      int printed_no = 0;  // print only 1 number_line for (1 line &&
+                           // match >= 2) (no || noh)
+      number++;
+
+      if ((regexec(&preg, line, 1, &match, 0) == 0) && !all_flag.v) {
+        count_matching_lines++;
+        matched_file = 1;
+        if (all_flag.c || all_flag.l) continue;
+
+        if (all_flag.h && !all_flag.o) {  // FLAG H - DOESN'T PRINT FILE NAME
+          if (all_flag.n) printf("%d:", number);
+          printf("%s", line);
+          add_line_break(line);
+          continue;
+        }
+        if (all_flag.n && !all_flag.o) {  // FLAG N - NUMBERS THE LINES
+          print_name_file(argc, argv, all_flag);
+          printf("%d:%s", number, line);
+          add_line_break(line);
+        }
+      }
+
+      if (all_flag.o) {  // FLAG O - PRINT MATCHED PART OF LINE
+        int add = 0;
+        while (regexec(&preg, line + add, 1, &match, 0) == 0) {
+          int start = match.rm_so + add;
+          int end = match.rm_eo + add;
+          add = flag_o(all_flag, argc, argv, &printed, &printed_no, start, end,
+                       line, number);
+        }
+      }
+
+      if (regexec(&preg, line, 1, &match, 0) != 0) {
+        invert_lines++;
+        matched_file_invert = 1;
+        if (all_flag.c || all_flag.l) continue;
+        if (all_flag.n && !all_flag.o &&
+            all_flag.v) {  // FLAG N - NUMBERS THE LINES
+          print_name_file(argc, argv, all_flag);
+          printf("%d:%s", number, line);
+          add_line_break(line);
+        } else if (all_flag.v) {  // FLAG V - INVERT
+          if (all_flag.h) {
+            printf("%s", line);
+            add_line_break(line);
+          } else {
+            print_name_file(argc, argv, all_flag);
+            printf("%s", line);
+            add_line_break(line);
+          }
+        }
+      }
+      // NO FLAGS, ONLY PATTERN
+      // all_flag.regex_flags == 0?
+      if ((!all_flag.o && !all_flag.v && !all_flag.n && !all_flag.h)) {
+        if (regexec(&preg, line, 1, &match, 0) == 0) {
+          if (all_flag.e) {
+            if (argc - optind > 1) printf("%s:", argv);
+          } else
+            print_name_file(argc, argv, all_flag);
+          printf("%s", line);
+          add_line_break(line);
+        }
+      }
+    }
+
+    // ФЛАГ С - PRINT THE NUMBER OF MATCHED LINES
+    if (all_flag.c && all_flag.l && all_flag.v) {
+      print_name_file(argc, argv, all_flag);
+      if (matched_file_invert == 1) {
+        printf("%d\n", 1);
+      } else {
+        printf("%d\n", 0);
+      }
+    } else if (all_flag.c && all_flag.v) {
+      print_name_file(argc, argv, all_flag);
+      printf("%d\n", invert_lines);
+    } else if (all_flag.c && all_flag.l) {
+      // if(!all_flag.h)
+      print_name_file(argc, argv, all_flag);
+      if (matched_file == 1) {
+        printf("%d\n", 1);
+      } else {
+        printf("%d\n", 0);
+      }
+    } else if (all_flag.c) {
+      // if(!all_flag.h) {
+      if (all_flag.e) {
+        if (argc - optind > 1) printf("%s:", argv);
+      } else
+        print_name_file(argc, argv, all_flag);
+      printf("%d\n", count_matching_lines);
+    }
+
+    // ФЛАГ L - PRINT ONLY NAME OF FILE
+    if (all_flag.l && all_flag.v && invert_lines > 0)
+      printf("%s\n", argv);
+    else if (all_flag.l && count_matching_lines > 0)
+      printf("%s\n", argv);
+
+    free(line);
+    regfree(&preg);
+    // matched_file = 0;
+    // matched_file_invert = 0;
+  }
+}
+
+int flag_o(flags all_flag, int argc, char *argv, int *printed, int *printed_no,
+           int start, int end, char *line, int number) {
+  if (all_flag.h)
+    ;
+  else if ((argc - optind > 2) && !(*printed)) {  // > 2 files (filename)
+    printf("%s:", argv);
+    (*printed) = 1;
+  }
+
+  if (all_flag.n && !(*printed_no)) {  // no || noh
+    (*printed_no) = 1;
+    printf("%d:", number);
+    for (int i = start; i < end; i++) {
+      printf("%c", line[i]);
+    }
+  } else {
+    for (int i = start; i < end; i++) {
+      printf("%c", line[i]);
+    }
+  }
+  printf("\n");
+  return end;
+}
+main
+.
